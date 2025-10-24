@@ -39,7 +39,8 @@ const App: React.FC = () => {
   }, [start, end]);
 
   const handleExportPDF = async () => {
-    if (!printRef.current || barcodes.length === 0) {
+    const printContainer = printRef.current;
+    if (!printContainer || barcodes.length === 0) {
         setError('لا يوجد باركود لتصديره. الرجاء إنشاء الباركود أولاً.');
         return;
     };
@@ -47,24 +48,40 @@ const App: React.FC = () => {
     setIsGenerating(true);
     setError(null);
 
-    try {
-      const canvas = await html2canvas(printRef.current, {
-        scale: 2,
-        backgroundColor: '#111827', // Match the background color
-        useCORS: true,
-      });
+    const pageElements = printContainer.querySelectorAll<HTMLDivElement>('.a4-page');
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'px',
-        format: [canvas.width, canvas.height],
-      });
+    if (pageElements.length === 0) {
+        setError('لم يتم العثور على صفحات لطباعتها.');
+        setIsGenerating(false);
+        return;
+    }
+
+    const pdf = new jsPDF('portrait', 'mm', 'a4');
+    const pdfWidth = 210;
+    const pdfHeight = 297;
+
+    try {
+      for (let i = 0; i < pageElements.length; i++) {
+        const pageElement = pageElements[i];
+        
+        const canvas = await html2canvas(pageElement, {
+          scale: 3, // Higher scale for better PDF quality
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          windowWidth: pageElement.scrollWidth,
+          windowHeight: pageElement.scrollHeight,
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        
+        if (i > 0) {
+          pdf.addPage();
+        }
+        
+        // Add image stretched to the size of an A4 page
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      }
       
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
       pdf.save(`MEG_GYM_Barcodes_${start}_to_${end}.pdf`);
 
     } catch (e) {
@@ -74,6 +91,8 @@ const App: React.FC = () => {
         setIsGenerating(false);
     }
   };
+
+  const barcodesPerPage = 35; // 5 columns * 7 rows
 
   return (
     <div className="bg-gray-900 min-h-screen text-white p-4 sm:p-8" dir="rtl">
@@ -124,21 +143,35 @@ const App: React.FC = () => {
             <h2 className="text-2xl font-bold text-center mb-6 text-gray-300">الباركود التي تم إنشاؤها</h2>
             
             {barcodes.length > 0 ? (
-                <div ref={printRef} className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 p-4 bg-gray-900 rounded-lg">
-                {barcodes.map(code => (
-                    <div key={code} className="bg-white p-3 rounded-md flex flex-col items-center justify-center shadow-md">
-                    <Barcode 
-                        value={code} 
-                        format="CODE128B"
-                        width={1.5}
-                        height={60}
-                        displayValue={false}
-                        background="#FFFFFF"
-                        lineColor="#000000"
-                    />
-                    <p className="text-black font-semibold mt-2 tracking-widest">{code}</p>
-                    </div>
-                ))}
+                <div ref={printRef}>
+                  {Array.from({ length: Math.ceil(barcodes.length / barcodesPerPage) }).map((_, pageIndex) => {
+                    const pageBarcodes = barcodes.slice(pageIndex * barcodesPerPage, (pageIndex + 1) * barcodesPerPage);
+                    return (
+                      <div
+                        key={pageIndex}
+                        className="a4-page bg-white p-5 mb-8 shadow-lg mx-auto"
+                        style={{ width: '100%', maxWidth: '800px', aspectRatio: '210 / 297' }}
+                      >
+                        <div className="grid grid-cols-5 grid-rows-7 h-full gap-y-2 gap-x-2">
+                          {pageBarcodes.map(code => (
+                            <div key={code} className="flex flex-col items-center justify-center text-center">
+                              <Barcode 
+                                  value={code} 
+                                  format="CODE128B"
+                                  width={1.5}
+                                  height={45}
+                                  displayValue={false}
+                                  background="#FFFFFF"
+                                  lineColor="#000000"
+                                  margin={0}
+                              />
+                              <p className="text-black font-semibold mt-1 tracking-widest text-xs">{code}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
             ) : (
                 <div className="text-center py-10 px-4 border-2 border-dashed border-gray-700 rounded-lg">
